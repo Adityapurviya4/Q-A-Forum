@@ -3,6 +3,7 @@ import { Home, LayoutGrid, TrendingUp, Bookmark, Tag, Monitor, FlaskConical, Sta
 import { useTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -37,12 +38,204 @@ const aiItems = [
   { id: 'ai', label: 'AI Assist', icon: Bot, path: '/ai', count: 'New', countStyle: 'bg-ai/20 text-ai' },
 ];
 
+const POPULAR_TAGS = [
+  'javascript', 'python', 'react', 'typescript',
+  'node.js', 'docker', 'kubernetes', 'rust', 'go',
+  'sql', 'redis', 'postgresql', 'next.js', 'aws',
+  'async-await', 'machine-learning', 'graphql', 'devops',
+  'llm', 'security',
+];
+
+// ─── Add Tag Modal ─────────────────────────────────────────────────────────────
+// Uses createPortal → renders into document.body, completely outside the sidebar's
+// overflow:auto / z-index stacking context, so it always covers the full viewport.
+interface AddTagModalProps {
+  existingTags: string[];
+  onAdd: (tags: string[]) => void;
+  onClose: () => void;
+}
+
+function AddTagModal({ existingTags, onAdd, onClose }: AddTagModalProps) {
+  const [search, setSearch]     = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggle = (tag: string) => {
+    if (existingTags.includes(tag)) return;
+    setSelected(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag],
+    );
+  };
+
+  const handleCustomAdd = () => {
+    const raw = search.trim().replace(/^#/, '').toLowerCase();
+    if (!raw) return;
+    if (!selected.includes(raw) && !existingTags.includes(raw)) {
+      setSelected(prev => [...prev, raw]);
+    }
+    setSearch('');
+  };
+
+  const handleConfirm = () => {
+    if (selected.length === 0) return;
+    onAdd(selected);
+    onClose();
+  };
+
+  const filtered = search
+    ? POPULAR_TAGS.filter(t => t.includes(search.replace(/^#/, '').toLowerCase()))
+    : POPULAR_TAGS;
+
+  // The actual modal JSX — teleported into document.body via createPortal below
+  const modal = (
+    <div
+      className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-5"
+      style={{ zIndex: 9999 }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border2 rounded-2xl w-full max-w-[420px] shadow-[0_8px_40px_rgba(0,0,0,0.6)] animate-modalIn"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border">
+          <h2 className="font-syne text-[16px] font-bold text-foreground">Add Tag to My Tags</h2>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg bg-bg3 border border-border flex items-center justify-center text-text3 hover:text-foreground hover:bg-bg4 transition-all cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 flex flex-col gap-4">
+
+          {/* Search / custom input */}
+          <div>
+            <label className="text-[11.5px] font-semibold text-text2 block mb-1.5">
+              Search or enter a tag name
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); handleCustomAdd(); }
+                  if (e.key === 'Escape') onClose();
+                }}
+                placeholder="#tag-name"
+                className="flex-1 h-9 bg-bg3 border border-border rounded-sm px-3 text-foreground text-[13px] outline-none focus:border-accent2 placeholder:text-text3 font-mono"
+                autoFocus
+              />
+              {search.trim() && (
+                <button
+                  onClick={handleCustomAdd}
+                  className="h-9 px-3 rounded-sm text-[12px] font-semibold bg-btn-bg text-btn-text border-none cursor-pointer hover:opacity-85 transition-all whitespace-nowrap"
+                >
+                  Add
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Custom (non-popular) tags selected */}
+          {selected.filter(t => !POPULAR_TAGS.includes(t)).length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selected.filter(t => !POPULAR_TAGS.includes(t)).map(tag => (
+                <span
+                  key={tag}
+                  onClick={() => toggle(tag)}
+                  className="text-[11px] font-medium font-mono px-2.5 py-[3px] rounded-md border cursor-pointer transition-all select-none bg-accent2/20 border-accent2 text-accent2"
+                >
+                  #{tag} ×
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Popular tags */}
+          <div>
+            <div className="text-[11px] font-semibold text-text3 mb-2.5">
+              Popular tags — click to select
+            </div>
+            <div className="flex flex-wrap gap-[7px]">
+              {filtered.map(tag => {
+                const isAlready  = existingTags.includes(tag);
+                const isSelected = selected.includes(tag);
+                return (
+                  <span
+                    key={tag}
+                    onClick={() => toggle(tag)}
+                    title={isAlready ? 'Already in My Tags' : undefined}
+                    className={`text-[11.5px] font-medium font-mono px-2.5 py-[4px] rounded-md border transition-all select-none
+                      ${isAlready
+                        ? 'bg-bg4 border-border text-text3 opacity-40 cursor-not-allowed'
+                        : isSelected
+                          ? 'bg-accent2/20 border-accent2 text-accent2 cursor-pointer'
+                          : 'bg-bg3 border-border text-text2 hover:border-border2 hover:text-foreground cursor-pointer'
+                      }`}
+                  >
+                    #{tag}
+                  </span>
+                );
+              })}
+              {filtered.length === 0 && (
+                <p className="text-[12px] text-text3 py-1">
+                  No matches — press Enter or click Add for a custom tag.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* "Adding:" preview */}
+          {selected.length > 0 && (
+            <div className="bg-bg3 border border-border rounded-sm px-3 py-2 flex items-center gap-2 flex-wrap">
+              <span className="text-[10.5px] font-bold text-text3 uppercase tracking-[0.8px] flex-shrink-0">Adding:</span>
+              {selected.map(t => (
+                <span key={t} className="text-[11px] font-mono text-accent2 bg-accent2/10 border border-accent2/25 px-2 py-px rounded">
+                  #{t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Footer buttons */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <button
+              onClick={onClose}
+              className="py-[7px] px-5 rounded-[9px] text-[12.5px] font-medium bg-bg3 border border-border text-text2 cursor-pointer hover:bg-bg4 hover:text-foreground transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={selected.length === 0}
+              className="py-[7px] px-5 rounded-[9px] text-[12.5px] font-semibold bg-btn-bg text-btn-text border-none cursor-pointer hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              Add Selected Tags{selected.length > 0 ? ` (${selected.length})` : ''}
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+
+  // createPortal teleports the modal into document.body —
+  // completely outside the sidebar's overflow / stacking context
+  return createPortal(modal, document.body);
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate  = useNavigate();
+  const location  = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { user } = useAuth();
-  const [myTags, setMyTags] = useState(['react', 'nodejs', 'typescript', 'docker']);
+  const { user }  = useAuth();
+
+  const [myTags, setMyTags]             = useState(['react', 'nodejs', 'typescript', 'docker']);
+  const [showTagModal, setShowTagModal] = useState(false);
 
   const navTo = (path: string) => {
     navigate(path);
@@ -51,12 +244,22 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
 
   const isActive = (path: string) => location.pathname === path;
 
+  const handleAddTags = (newTags: string[]) => {
+    setMyTags(prev => {
+      const next = [...prev];
+      newTags.forEach(t => { if (!next.includes(t)) next.push(t); });
+      return next;
+    });
+  };
+
   const SidebarItem = ({ item }: { item: typeof discoverItems[0] & { countStyle?: string } }) => (
     <button
       onClick={() => navTo(item.path)}
       className={`flex items-center gap-2 px-2.5 py-[7px] rounded-sm text-sb-text cursor-pointer text-[12.5px] font-medium transition-all relative border-none bg-transparent w-full text-left font-figtree hover:bg-sb-item-hover hover:text-sb-text-active ${isActive(item.path) ? 'bg-sb-item-active text-sb-text-active' : ''}`}
     >
-      {isActive(item.path) && <div className="absolute left-0 top-[22%] bottom-[22%] w-[3px] rounded-sm bg-sb-item-active-bar" />}
+      {isActive(item.path) && (
+        <div className="absolute left-0 top-[22%] bottom-[22%] w-[3px] rounded-sm bg-sb-item-active-bar" />
+      )}
       <item.icon className="w-3.5 h-3.5 flex-shrink-0" />
       <span>{item.label}</span>
       {item.count && (
@@ -69,6 +272,7 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
 
   const content = (
     <div className="flex flex-col gap-4 h-full">
+
       {/* Profile */}
       <div className="flex items-center gap-2 p-2 px-2 rounded-sm bg-sb-item-hover border border-border">
         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
@@ -96,15 +300,31 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
       <div>
         <div className="flex items-center justify-between px-2 mb-0.5">
           <span className="text-[9.5px] font-bold tracking-[1.3px] text-sb-text-label uppercase">My Tags</span>
-          <button className="w-[18px] h-[18px] rounded-[5px] bg-sb-chip-bg border border-sb-chip-border flex items-center justify-center text-sb-text-label hover:bg-sb-item-active hover:text-sb-text-active transition-all">
+          <button
+            onClick={() => setShowTagModal(true)}
+            className="w-[18px] h-[18px] rounded-[5px] bg-sb-chip-bg border border-sb-chip-border flex items-center justify-center text-sb-text-label hover:bg-sb-item-active hover:text-sb-text-active transition-all cursor-pointer"
+            title="Add tag"
+          >
             <Plus className="w-[9px] h-[9px]" />
           </button>
         </div>
         <div className="flex flex-wrap gap-[5px] px-1 mt-1.5">
+          {myTags.length === 0 && (
+            <span className="text-[10.5px] text-sb-text-label italic px-1">No tags yet — add some!</span>
+          )}
           {myTags.map(tag => (
-            <span key={tag} className="text-[10.5px] font-medium font-mono px-[7px] py-[2px] rounded-[5px] bg-sb-chip-bg border border-sb-chip-border text-sb-chip-color cursor-pointer hover:border-accent2 hover:text-accent2 transition-all flex items-center gap-[3px]">
+            <span
+              key={tag}
+              className="text-[10.5px] font-medium font-mono px-[7px] py-[2px] rounded-[5px] bg-sb-chip-bg border border-sb-chip-border text-sb-chip-color cursor-pointer hover:border-accent2 hover:text-accent2 transition-all flex items-center gap-[3px]"
+            >
               #{tag}
-              <span onClick={() => setMyTags(t => t.filter(x => x !== tag))} className="text-[11px] text-sb-text-label cursor-pointer hover:text-danger">×</span>
+              <span
+                onClick={() => setMyTags(t => t.filter(x => x !== tag))}
+                className="text-[11px] text-sb-text-label cursor-pointer hover:text-danger leading-none"
+                title="Remove"
+              >
+                ×
+              </span>
             </span>
           ))}
         </div>
@@ -125,11 +345,18 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
       {/* Theme Toggle */}
       <div className="mt-auto pt-2.5 px-2.5 border-t border-border">
         <div className="flex items-center justify-between py-2">
-          <span className="text-[11.5px] font-medium text-sb-text flex items-center gap-[7px]"><Sun className="w-[13px] h-[13px]" />Light</span>
-          <button onClick={toggleTheme} className={`w-11 h-6 rounded-full relative cursor-pointer flex-shrink-0 border transition-all ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-bg4 border-border'}`}>
+          <span className="text-[11.5px] font-medium text-sb-text flex items-center gap-[7px]">
+            <Sun className="w-[13px] h-[13px]" />Light
+          </span>
+          <button
+            onClick={toggleTheme}
+            className={`w-11 h-6 rounded-full relative cursor-pointer flex-shrink-0 border transition-all ${theme === 'dark' ? 'bg-primary border-primary' : 'bg-bg4 border-border'}`}
+          >
             <div className={`w-[18px] h-[18px] rounded-full absolute top-[2px] transition-transform duration-250 ${theme === 'dark' ? 'translate-x-5 bg-white' : 'left-[3px] bg-white/55'}`} />
           </button>
-          <span className="text-[11.5px] font-medium text-sb-text flex items-center gap-[7px]"><Moon className="w-[13px] h-[13px]" />Dark</span>
+          <span className="text-[11.5px] font-medium text-sb-text flex items-center gap-[7px]">
+            <Moon className="w-[13px] h-[13px]" />Dark
+          </span>
         </div>
       </div>
     </div>
@@ -138,7 +365,17 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
   if (isMobile) {
     return (
       <>
-        {!collapsed && <div className="fixed inset-0 bg-black/60 z-[199] backdrop-blur-sm" onClick={onClose} />}
+        {/* Portal modal — lives in document.body, not inside the aside */}
+        {showTagModal && (
+          <AddTagModal
+            existingTags={myTags}
+            onAdd={handleAddTags}
+            onClose={() => setShowTagModal(false)}
+          />
+        )}
+        {!collapsed && (
+          <div className="fixed inset-0 bg-black/60 z-[199] backdrop-blur-sm" onClick={onClose} />
+        )}
         <aside className={`fixed top-0 left-0 h-full w-[260px] bg-sidebar-bg border-r border-border z-[200] transform transition-transform duration-300 pt-4 px-2.5 overflow-y-auto ${collapsed ? '-translate-x-full' : 'translate-x-0'}`}>
           <div className="flex justify-end mb-2">
             <button onClick={onClose} className="w-8 h-8 rounded-lg bg-bg3 border border-border flex items-center justify-center text-text2 hover:bg-bg4">
@@ -152,8 +389,18 @@ export default function Sidebar({ collapsed, isMobile, onClose }: SidebarProps) 
   }
 
   return (
-    <aside className={`flex-shrink-0 bg-sidebar-bg border-r border-border border-l-[3px] border-l-sb-item-active-bar sticky top-14 h-[calc(100vh-56px)] overflow-y-auto pt-4 px-2.5 flex flex-col gap-4 transition-all duration-300 ${collapsed ? 'w-0 min-w-0 opacity-0 p-0 overflow-hidden border-r-0 border-l-0 pointer-events-none' : 'w-[228px] min-w-[228px]'}`}>
-      {content}
-    </aside>
+    <>
+      {/* Portal modal — lives in document.body, not inside the aside */}
+      {showTagModal && (
+        <AddTagModal
+          existingTags={myTags}
+          onAdd={handleAddTags}
+          onClose={() => setShowTagModal(false)}
+        />
+      )}
+      <aside className={`flex-shrink-0 bg-sidebar-bg border-r border-border border-l-[3px] border-l-sb-item-active-bar sticky top-14 h-[calc(100vh-56px)] overflow-y-auto pt-4 px-2.5 flex flex-col gap-4 transition-all duration-300 ${collapsed ? 'w-0 min-w-0 opacity-0 p-0 overflow-hidden border-r-0 border-l-0 pointer-events-none' : 'w-[228px] min-w-[228px]'}`}>
+        {content}
+      </aside>
+    </>
   );
 }
