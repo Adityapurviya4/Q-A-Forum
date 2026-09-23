@@ -331,3 +331,133 @@ Phase 5: Security Hardening & Deployment
   └── Host Frontend on Vercel/Netlify & Backend on Render/Railway
 
 ```
+-
+
+-
+-
+--
+-
+-
+
+-
+-
+Here is the comprehensive architectural canvas and detailed technical specification for **Technical Forums**, mapped out across system components, relational MongoDB document models, request sequence flows, and the implementation roadmap.
+
+---
+
+## 1. System Topography & Tier Breakdown
+
+```
+                             [ CLIENT TIER ]
+    ┌──────────────────────────────────────────────────────────────┐
+    │  React SPA (React Router v6, Axios, State Management)        │
+    │  - Public Feed & Search                                      │
+    │  - Threading & Recursive Comment Renderer                    │
+    │  - Dynamic Auth Interceptor (Bearer JWT Injection)          │
+    └──────────────────────────────┬───────────────────────────────┘
+                                   │ HTTPS / REST (JSON)
+                                   ▼
+                             [ API TIER ]
+    ┌──────────────────────────────────────────────────────────────┐
+    │  Node.js + Express.js API Gateway                            │
+    │  - CORS & express-rate-limit Middleware                      │
+    │  - ProtectRoute (Bcrypt password verification & JWT sign)    │
+    │  - Question & Thread Controller Routing                     │
+    └──────────────────────────────┬───────────────────────────────┘
+                                   │ Mongoose ODM Driver
+                                   ▼
+                           [ DATABASE TIER ]
+    ┌──────────────────────────────────────────────────────────────┐
+    │  MongoDB Atlas Cluster                                       │
+    │  - Users Collection (Auth & Credential Hash Store)          │
+    │  - Questions Collection (Indexed by Title & Tags)           │
+    │  - Answers Collection (Normalized with parentAnswerRef)      │
+    └──────────────────────────────────────────────────────────────┘
+
+```
+
+---
+
+## 2. Relational Document Models & Indexing Strategy
+
+### Document Schemas
+
+```javascript
+// User Schema
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true, trim: true },
+  email:    { type: String, required: true, unique: true, lowercase: true },
+  passwordHash: { type: String, required: true },
+  createdAt:    { type: Date, default: Date.now }
+});
+
+// Question Schema
+const QuestionSchema = new mongoose.Schema({
+  authorRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title:     { type: String, required: true, index: true },
+  content:   { type: String, required: true },
+  tags:      [{ type: String, index: true }],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// Answer Schema (Parent-Child Recursive Linking)
+const AnswerSchema = new mongoose.Schema({
+  questionRef:     { type: mongoose.Schema.Types.ObjectId, ref: 'Question', required: true, index: true },
+  authorRef:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  answerText:      { type: String, required: true },
+  parentAnswerRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Answer', default: null, index: true },
+  createdAt:       { type: Date, default: Date.now }
+});
+
+```
+
+### Relational Linkage Matrix
+
+| Collection | Field Name | Target Document | Reference Type | Index Purpose |
+| --- | --- | --- | --- | --- |
+| **Questions** | `authorRef` | `Users._id` | `ObjectId` | Fast author activity retrieval |
+| **Questions** | `tags` | Array of Strings | B-Tree Index | Instant tag-filtered feed queries |
+| **Answers** | `questionRef` | `Questions._id` | `ObjectId` | Grouping all thread answers per question |
+| **Answers** | `parentAnswerRef` | `Answers._id` | `ObjectId` | Building recursive follow-up reply trees |
+
+---
+
+## 3. End-to-End Submission & Execution Flow
+
+```
++──────────────+         +─────────────────+         +─────────────────+         +─────────────────+
+│  React UI    │         │ Auth Middleware │         │ Route Controller│         │ MongoDB Atlas   │
++──────┬───────+         +────────┬────────+         +────────┬────────+         +────────┬────────+
+       │                          │                           │                           │
+       │ POST /api/questions/501/answers                     │                           │
+       │ Header: Bearer <JWT>     │                           │                           │
+       ├─────────────────────────►│                           │                           │
+       │                          │                           │                           │
+       │                          │ jwt.verify(token)         │                           │
+       │                          ├──────────────────┐        │                           │
+       │                          │                  │        │                           │
+       │                          │◄─────────────────┘        │                           │
+       │                          │ Valid -> set req.user     │                           │
+       │                          ├──────────────────────────►│                           │
+       │                          │                           │                           │
+       │                          │                           │ Answer.create(...)        │
+       │                          │                           ├──────────────────────────►│
+       │                          │                           │                           │
+       │                          │                           │◄──────────────────────────┤
+       │                          │                           │ Returns saved Document    │
+       │                          │                           │                           │
+       │                          │                           │ .populate('authorRef')    │
+       │                          │                           ├──────────────────────────►│
+       │                          │                           │◄──────────────────────────┤
+       │◄─────────────────────────┴───────────────────────────┤                           │
+       │ HTTP 201 Created (JSON Response with Populated User) │                           │
+       │ Updates local state -> Optimistic UI re-render       │                           │
+
+```
+
+---
+
+## 4. Interactive Whiteboard & Architecture Canvas
+
+Use the interactive canvas below to inspect individual system modules, preview live document schemas, trace request pipelines, examine API endpoint matrices, and review implementation phases.
